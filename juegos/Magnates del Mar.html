@@ -1,0 +1,155 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Navieros: Ruta de Mercancías</title>
+<style>
+html,body{margin:0;height:100%;background:#0b2a3f;overflow:hidden;font-family:system-ui,sans-serif;color:#fff}
+canvas#c{position:fixed;inset:0;width:100%;height:100%}
+.box{position:fixed;background:rgba(6,20,32,.72);border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.5}
+#hud{top:calc(10px + env(safe-area-inset-top,0px));left:10px}
+#mm{position:fixed;left:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));background:rgba(6,20,32,.72);border-radius:10px;width:160px;height:160px}
+#panel{top:calc(10px + env(safe-area-inset-top,0px));right:10px;width:270px;display:none;max-height:80%;overflow:auto}
+#panel button{display:block;width:100%;margin:4px 0;padding:7px;border:0;border-radius:6px;background:#1e8fd0;color:#fff;font-size:13px;cursor:pointer;text-align:left}
+#panel button:disabled{background:#3a4a58;color:#889;cursor:default}
+#panel h4{margin:8px 0 2px;color:#ffd166}
+#msg{left:50%;top:22%;transform:translateX(-50%);display:none;font-size:18px;text-align:center}
+#help{right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));font-size:12px;opacity:.85}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="hud" class="box"></div><div id="msg" class="box"></div><canvas id="mm" width="160" height="160"></canvas>
+<div id="panel" class="box"></div>
+<div id="help" class="box">W/S acelerar · A/D girar · Puertos: comerciar, mejorar y repostar (más barato) · Gasolineras ⛽: repostar por dinero</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const R=new THREE.WebGLRenderer({canvas:$('c'),antialias:true});R.setPixelRatio(Math.min(devicePixelRatio,2));
+const S=new THREE.Scene();S.background=new THREE.Color(0x9fd0ee);S.fog=new THREE.Fog(0x9fd0ee,150,900);
+const cam=new THREE.PerspectiveCamera(60,1,1,2000);
+function rs(){R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}addEventListener('resize',rs);rs();
+S.add(new THREE.HemisphereLight(0xffffff,0x336688,.85));
+const sun=new THREE.DirectionalLight(0xffffff,.8);sun.position.set(100,200,50);S.add(sun);
+// agua
+const wc=document.createElement('canvas');wc.width=wc.height=128;let g=wc.getContext('2d');g.fillStyle='#1e6f9f';g.fillRect(0,0,128,128);g.strokeStyle='rgba(255,255,255,.25)';g.lineWidth=2;
+for(let i=0;i<14;i++){g.beginPath();const a=Math.random()*110,b=Math.random()*128;g.moveTo(a,b);g.lineTo(a+18,b+3);g.stroke()}
+const wt=new THREE.CanvasTexture(wc);wt.wrapS=wt.wrapT=THREE.RepeatWrapping;wt.repeat.set(288,288);
+const water=new THREE.Mesh(new THREE.PlaneGeometry(9000,9000),new THREE.MeshPhongMaterial({map:wt,shininess:80}));water.rotation.x=-Math.PI/2;S.add(water);
+const M=(geo,c)=>new THREE.Mesh(geo,new THREE.MeshLambertMaterial({color:c}));
+function label(t,col){const c=document.createElement('canvas');c.width=256;c.height=64;const q=c.getContext('2d');q.font='bold 28px sans-serif';q.textAlign='center';q.fillStyle='rgba(0,0,0,.55)';q.fillRect(0,0,256,64);q.fillStyle=col;q.fillText(t,128,42);
+const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthWrite:false}));s.scale.set(48,12,1);return s}
+// puertos
+const P=[['Puerto Alba',-1500,-1400,0xff5555],['Bahía Norte',200,-1750,0xffaa33],['Cabo Sol',1600,-1100,0xffee44],['Isla Roca',-1800,300,0x55dd77],['Puerto Este',1750,800,0x44ccff],['Fondeadero Sur',-300,1750,0xcc66ff],['Bahía Oeste',-1400,1400,0xff77aa],['Roca Blanca',1200,1700,0xeeeeee]].map(a=>({n:a[0],x:a[1],z:a[2],c:a[3]}));
+const obs=[];
+P.forEach(p=>{const gp=new THREE.Group();gp.position.set(p.x,0,p.z);
+const sand=M(new THREE.CylinderGeometry(52,58,6,24),0xe6d29a);sand.position.y=-1;gp.add(sand);
+const gr=M(new THREE.CylinderGeometry(40,46,3,24),0x5aa84a);gr.position.y=2;gp.add(gr);
+for(let i=0;i<3;i++){const w=M(new THREE.BoxGeometry(14,8,10),[0xcc5544,0x4477cc,0xddaa33][i]);w.position.set(-16+i*16,6,-12);gp.add(w)}
+const cr=M(new THREE.BoxGeometry(3,22,3),0xffcc00);cr.position.set(0,13,14);gp.add(cr);const ar=M(new THREE.BoxGeometry(22,2,2),0xffcc00);ar.position.set(6,24,14);gp.add(ar);
+p.beam=new THREE.Mesh(new THREE.CylinderGeometry(1.5,1.5,220,8),new THREE.MeshBasicMaterial({color:p.c,transparent:true,opacity:.5,fog:false}));p.beam.position.y=110;gp.add(p.beam);
+const lb=label(p.n,'#'+p.c.toString(16).padStart(6,'0'));lb.position.y=38;gp.add(lb);S.add(gp);obs.push({x:p.x,z:p.z,r:50})});
+const F=[[-900,-300],[800,-300],[0,-900],[-900,900],[700,1050],[100,200]].map(a=>({x:a[0],z:a[1]}));
+F.forEach((f,i)=>{f.n='Gasolinera '+(i+1);const gp=new THREE.Group();gp.position.set(f.x,0,f.z);const pl=M(new THREE.CylinderGeometry(16,18,4,12),0x555b63);gp.add(pl);const tk=M(new THREE.CylinderGeometry(4,4,9,12),0xee7722);tk.position.set(-5,6,0);gp.add(tk);const t2=M(new THREE.BoxGeometry(6,5,6),0xffffff);t2.position.set(6,4,0);gp.add(t2);
+f.beam=new THREE.Mesh(new THREE.CylinderGeometry(1,1,120,8),new THREE.MeshBasicMaterial({color:0x33ff88,transparent:true,opacity:.4,fog:false}));f.beam.position.y=60;gp.add(f.beam);const lb=label('⛽ '+f.n,'#66ffaa');lb.position.y=26;lb.scale.set(36,9,1);gp.add(lb);S.add(gp);obs.push({x:f.x,z:f.z,r:14})});
+// islas decorativas
+let sd=7;const rnd=()=>(sd=(sd*16807)%2147483647)/2147483647;
+for(let i=0;i<30;i++){let x,z,ok,t=0;do{x=(rnd()-.5)*4200;z=(rnd()-.5)*4200;ok=P.every(p=>Math.hypot(p.x-x,p.z-z)>260)&&F.every(f=>Math.hypot(f.x-x,f.z-z)>150)&&obs.every(o=>Math.hypot(o.x-x,o.z-z)>o.r+90);t++}while(!ok&&t<50);
+if(!ok)continue;const r=25+rnd()*30;const b=M(new THREE.ConeGeometry(r,r*.8+10,7),0x7a7468);b.position.set(x,r*.3,z);S.add(b);const f=M(new THREE.CylinderGeometry(r*.9,r,3,7),0xe6d29a);f.position.set(x,0,z);S.add(f);obs.push({x,z,r:r*.95,d:1})}
+// barco
+const ship=new THREE.Group();const hull=M(new THREE.BoxGeometry(6,3,14),0x933b2b);hull.position.y=.5;ship.add(hull);
+const bow=M(new THREE.ConeGeometry(4.2,6,4),0x933b2b);bow.rotation.x=Math.PI/2;bow.rotation.y=Math.PI/4;bow.position.set(0,.5,10);bow.scale.set(.75,1,1);ship.add(bow);
+const cab=M(new THREE.BoxGeometry(5,4,3),0xeeeeee);cab.position.set(0,4,-5);ship.add(cab);const chim=M(new THREE.CylinderGeometry(.7,.7,3),0x222222);chim.position.set(0,7,-5);ship.add(chim);
+const cont=[];for(let i=0;i<12;i++){const c=M(new THREE.BoxGeometry(2.4,2,2.6),0xffffff);c.position.set(i%2?1.4:-1.4,3,-1.5+Math.floor(i/2)*2.2+(i>5?0:0));c.position.z=-1+Math.floor(i/2)*2;c.visible=false;ship.add(c);cont.push(c)}
+S.add(ship);
+// estado
+const st={money:0,fuel:200,cargo:0,dest:-1,price:0,block:{},lv:{v:0,c:0,t:0,f:0}};
+const UP=[['v','Motor (velocidad)',250],['c','Bodega (capacidad)',300],['t','Timón (maniobra)',200],['f','Depósito (autonomía)',180]];
+const maxV=()=>20+5*st.lv.v,cap=()=>10+8*st.lv.c,turn=()=>.9+.3*st.lv.t,tank=()=>200+60*st.lv.f,cost=k=>Math.round(UP.find(u=>u[0]==k)[2]*Math.pow(1.7,st.lv[k]));
+let X=P[0].x,Z=P[0].z+90,h=Math.PI,v=0,inPort=-1,inSt=-1;const FP=1.2,PP=0.4;const fp=()=>inPort>=0?PP:FP;const keys={};
+addEventListener('keydown',e=>{keys[e.code]=1;if(e.code.startsWith('Arrow'))e.preventDefault()});addEventListener('keyup',e=>keys[e.code]=0);
+const dist=(i,j)=>Math.hypot(P[i].x-P[j].x,P[i].z-P[j].z);
+const rate=(i,j)=>.06*(0.9+.3*((i*7+j*3)%5)/4);
+let mt;function toast(t){const m=$('msg');m.textContent=t;m.style.display='block';clearTimeout(mt);mt=setTimeout(()=>m.style.display='none',3500)}
+function load(j){if(st.cargo>0||inPort<0||(st.block[j]||0)>0)return;st.cargo=cap();st.dest=j;st.price=Math.round(dist(inPort,j)*rate(inPort,j)*10)/10;toast('Cargados '+st.cargo+' contenedores → '+P[j].n);panel()}
+function buy(k){const c=cost(k);if(st.money<c||st.lv[k]>=5)return;st.money-=c;st.lv[k]++;if(k=='f')st.fuel+=60;panel()}
+window.fq=()=>{const a=+$('fa').value;$('fl').textContent=a+' uds · $'+(a*fp()).toFixed(1)};
+window.refuel=()=>{const a=Math.min(+$('fa').value,Math.floor(st.money/fp()));if(a<=0)return;st.money-=a*fp();st.fuel+=a;toast('Repostadas '+a+' uds por $'+(a*fp()).toFixed(1));panel()};
+window.load=load;window.buy=buy;
+function panel(){const p=$('panel');
+if(inPort<0&&inSt>=0){const need=Math.floor(tank()-st.fuel);p.innerHTML='<b style="font-size:16px">⛽ '+F[inSt].n+'</b><br>💰 $'+Math.floor(st.money)+'<br>Combustible: '+Math.round(st.fuel)+'/'+tank()+'<br><small>Precio: $'+FP+' por unidad</small><input type="range" id="fa" min="0" max="'+need+'" value="'+Math.min(need,Math.floor(st.money/FP))+'" style="width:100%" oninput="fq()"><div id="fl"></div><button onclick="refuel()">Repostar</button><button onclick="$(\'fa\').value=$(\'fa\').max;fq()">Máximo</button>';p.style.display='block';fq();return}
+if(inPort<0){p.style.display='none';return}
+let s='<b style="font-size:16px">⚓ '+P[inPort].n+'</b><br>💰 $'+Math.floor(st.money);
+const nd=Math.floor(tank()-st.fuel);s+='<h4>⛽ Combustible ('+Math.round(st.fuel)+'/'+tank()+')</h4><small>Precio: $'+PP+' por unidad (más barato que en gasolinera)</small>'+(nd>0?'<input type="range" id="fa" min="0" max="'+nd+'" value="'+Math.min(nd,Math.floor(st.money/PP))+'" style="width:100%" oninput="fq()"><div id="fl"></div><button onclick="refuel()">Repostar</button><button onclick="$(\'fa\').value=$(\'fa\').max;fq()">Máximo</button>':'<br><small>Depósito lleno</small>');
+s+='<h4>Contratos de carga ('+cap()+' uds)</h4>';
+if(st.cargo>0)s+='<small>Ya llevas carga hacia '+P[st.dest].n+'</small>';
+P.forEach((q,j)=>{if(j!=inPort){const bl=st.block[j]||0;s+='<button '+(st.cargo>0||bl>0?'disabled':'')+' onclick="load('+j+')">→ '+q.n+' · '+Math.round(dist(inPort,j))+' m · $'+(dist(inPort,j)*rate(inPort,j)).toFixed(1)+'/ud'+(bl>0?' · 🔒 faltan '+bl+' entrega'+(bl>1?'s':'')+' en otros puertos':'')+'</button>'}});
+s+='<h4>Mejoras</h4>';UP.forEach(u=>{const l=st.lv[u[0]];s+='<button '+(l>=5||st.money<cost(u[0])?'disabled':'')+' onclick="buy(\''+u[0]+'\')">'+u[1]+' · nivel '+l+'/5 · '+(l>=5?'MAX':'$'+cost(u[0]))+'</button>'});
+p.innerHTML=s;p.style.display='block';if($('fa'))fq()}
+const mm=$('mm').getContext('2d');
+function drawMap(){mm.clearRect(0,0,160,160);const f=160/4600,ox=80,oy=80;
+P.forEach((p,i)=>{mm.fillStyle=i==st.dest?'#fff':'#'+p.c.toString(16).padStart(6,'0');mm.beginPath();mm.arc(ox+p.x*f,oy+p.z*f,i==st.dest?6:4,0,7);mm.fill()});
+F.forEach(q=>{mm.fillStyle='#33ff88';mm.fillRect(ox+q.x*f-2,oy+q.z*f-2,4,4)});
+obs.filter(o=>o.d).forEach(o=>{mm.fillStyle='#7a7468';mm.beginPath();mm.arc(ox+o.x*f,oy+o.z*f,2,0,7);mm.fill()});
+ev.crates.forEach(c=>{mm.fillStyle='#ffd23f';mm.fillRect(ox+c.x*f-2,oy+c.z*f-2,4,4)});if(ev.pir){mm.fillStyle='#ff2222';mm.beginPath();mm.arc(ox+ev.pir.x*f,oy+ev.pir.z*f,4,0,7);mm.fill()}if(ev.vx){mm.strokeStyle='#7fd0ff';mm.beginPath();mm.arc(ox+ev.vx.x*f,oy+ev.vx.z*f,5,0,7);mm.stroke()}
+mm.save();mm.translate(ox+X*f,oy+Z*f);mm.rotate(-h+Math.PI);mm.fillStyle='#ff3b3b';mm.beginPath();mm.moveTo(0,-7);mm.lineTo(4,5);mm.lineTo(-4,5);mm.fill();mm.restore()}
+// eventos
+const ev={storm:0,boost:0,fog:0,fail:0,crates:[],pir:null,vx:null,reefs:[],next:10};
+const pir=new THREE.Group();
+{const a=M(new THREE.BoxGeometry(5,3,12),0x222222);a.position.y=.5;pir.add(a);const b=M(new THREE.BoxGeometry(.6,9,.6),0x111111);b.position.y=6;pir.add(b);const c=M(new THREE.BoxGeometry(5,3.5,.3),0x000000);c.position.set(0,7,0);pir.add(c);
+const bm=new THREE.Mesh(new THREE.CylinderGeometry(1,1,90,8),new THREE.MeshBasicMaterial({color:0xff2222,transparent:true,opacity:.5,fog:false}));bm.position.y=45;pir.add(bm)}
+pir.visible=false;S.add(pir);
+const cFog=new THREE.Color(0x9fd0ee),sFog=new THREE.Color(0x46525e),gFog=new THREE.Color(0xc9d3d8);
+const MAXEV=3;
+function activeEv(){return(ev.storm>0)+(ev.boost>0)+(ev.fog>0)+(ev.fail>0)+(ev.pir?1:0)+(ev.vx?1:0)+(ev.crates.length>0)+(ev.reefs.length>0)}
+function rp(){for(let i=0;i<30;i++){const a=Math.random()*6.283,d=250+Math.random()*250,x=X+Math.sin(a)*d,z=Z+Math.cos(a)*d;if(Math.abs(x)<2100&&Math.abs(z)<2100&&obs.every(o=>Math.hypot(o.x-x,o.z-z)>o.r+20))return[x,z]}return null}
+function newEvent(){const k=Math.floor(Math.random()*8);
+if(k==0){if(ev.storm>0)return;ev.storm=25;toast('🌩️ ¡Tormenta! Menos visibilidad, más lento y gastas más combustible')}
+else if(k==1){if(ev.pir)return;const p=rp();if(!p)return;ev.pir={x:p[0],z:p[1],h:0,t:45};pir.visible=true;toast('🏴‍☠️ ¡Piratas a la vista! Huye o refúgiate en un puerto')}
+else if(k==2){if(ev.crates.length)return;const p=rp();if(!p)return;for(let i=0;i<3;i++){const g=new THREE.Group(),x=p[0]+(i-1)*28,z=p[1]+(i%2)*20;g.position.set(x,0,z);const b=M(new THREE.BoxGeometry(4,4,4),0xc98a3a);b.position.y=2;g.add(b);const bm=new THREE.Mesh(new THREE.CylinderGeometry(.8,.8,50,8),new THREE.MeshBasicMaterial({color:0xffd23f,transparent:true,opacity:.6,fog:false}));bm.position.y=25;g.add(bm);S.add(g);ev.crates.push({g,x,z,t:70,k:Math.random()<.5?'m':'f'})}toast('📦 ¡Cajas a la deriva! Sigue los haces dorados (puntos amarillos en el minimapa)')}
+else if(k==3){if(ev.boost>0)return;ev.boost=15;toast('🌊 ¡Corriente favorable! Velocidad extra unos segundos')}
+else if(k==4){if(ev.fog>0)return;ev.fog=25;toast('🌫️ ¡Niebla densa! Casi no se ve nada: guíate por los haces y el minimapa')}
+else if(k==5){if(ev.vx)return;const p=rp();if(!p)return;const g=new THREE.Group();g.position.set(p[0],.3,p[1]);for(let i=0;i<3;i++){const r=new THREE.Mesh(new THREE.TorusGeometry(10+i*22,3,6,24),new THREE.MeshBasicMaterial({color:i%2?0x0b3350:0x7fd0ff}));r.rotation.x=Math.PI/2;g.add(r)}S.add(g);ev.vx={g,x:p[0],z:p[1],t:45};toast('🌀 ¡Remolino! Te arrastra hacia el centro y te hace perder combustible')}
+else if(k==6){if(ev.fail>0)return;ev.fail=12;toast('🔧 ¡Avería en el motor! Velocidad a la mitad unos segundos')}
+else{if(ev.reefs.length)return;for(let i=0;i<3;i++){const p=rp();if(!p)continue;const r=25+Math.random()*10,m=M(new THREE.ConeGeometry(r*.6,r*.5,6),0x4a4a52);m.position.set(p[0],0,p[1]);S.add(m);const o={x:p[0],z:p[1],r:r*.6+4,d:1,t:70,m};obs.push(o);ev.reefs.push(o)}if(!ev.reefs.length)return;toast('🪨 ¡Arrecifes! Han emergido rocas nuevas (puntos grises en el minimapa)')}}
+function events(dt,t){
+ev.storm=Math.max(0,ev.storm-dt);ev.boost=Math.max(0,ev.boost-dt);
+ev.fog=Math.max(0,ev.fog-dt);ev.fail=Math.max(0,ev.fail-dt);
+ev.reefs=ev.reefs.filter(o=>{o.t-=dt;if(o.t<=0){S.remove(o.m);obs.splice(obs.indexOf(o),1);return false}return true});
+const w=ev.vx;if(w){w.t-=dt;w.g.rotation.y+=dt*1.5;const dx=w.x-X,dz=w.z-Z,d=Math.hypot(dx,dz);
+if(w.t<=0){S.remove(w.g);ev.vx=null}
+else if(d<14){const l=Math.min(st.fuel,25);st.fuel-=l;v*=.3;toast('🌀 El remolino te ha hecho perder '+Math.round(l)+' de combustible');S.remove(w.g);ev.vx=null}
+else if(d<90){const f=(1-d/90)*(18+maxV()*.5)*dt/d;X+=dx*f;Z+=dz*f}}
+if(inPort<0&&(ev.next-=dt)<=0){ev.next=12+Math.random()*13;const n0=activeEv();if(n0<MAXEV)for(let i=0;i<10&&activeEv()==n0;i++)newEvent()}
+const k=Math.min(1,dt*2),sm=ev.storm>0;
+const fg=ev.fog>0;S.fog.near+=((fg?5:sm?20:150)-S.fog.near)*k;S.fog.far+=((fg?130:sm?300:900)-S.fog.far)*k;const tc=fg?gFog:sm?sFog:cFog;S.fog.color.lerp(tc,k);S.background.lerp(tc,k);
+sun.intensity+=(.8-sun.intensity)*Math.min(1,dt*8);if(sm&&Math.random()<dt*.4)sun.intensity=3;
+ev.crates=ev.crates.filter(c=>{c.t-=dt;c.g.position.y=Math.sin(t*2+c.x)*.6;
+if(Math.hypot(X-c.x,Z-c.z)<12){if(c.k=='m'){const m=100+Math.round(Math.random()*100);st.money+=m;toast('📦 Botín: +$'+m)}else{const f=Math.min(40,tank()-st.fuel);st.fuel+=f;toast('📦 Barril de combustible: +'+Math.round(f))}S.remove(c.g);return false}
+if(c.t<=0){S.remove(c.g);return false}return true});
+const p=ev.pir;
+if(p){p.t-=dt;
+if(inPort>=0||p.t<=0){ev.pir=null;pir.visible=false;if(inPort>=0)toast('🏴‍☠️ Los piratas se retiran del puerto')}
+else{const ta=Math.atan2(X-p.x,Z-p.z),df=((ta-p.h+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;p.h+=Math.max(-1.2*dt,Math.min(1.2*dt,df));const sp=Math.max(16,maxV()*.9);p.x+=Math.sin(p.h)*sp*dt;p.z+=Math.cos(p.h)*sp*dt;
+obs.forEach(o=>{const d=Math.hypot(p.x-o.x,p.z-o.z);if(d<o.r+6){const q=(o.r+6)/d;p.x=o.x+(p.x-o.x)*q;p.z=o.z+(p.z-o.z)*q}});
+pir.position.set(p.x,Math.sin(t*1.7)*.25,p.z);pir.rotation.y=p.h;
+if(Math.hypot(X-p.x,Z-p.z)<14){if(st.money>=50){const l=Math.floor(st.money*.2);st.money-=l;toast('🏴‍☠️ ¡Los piratas te robaron $'+l+'!')}else{const l=Math.min(st.fuel,30);st.fuel-=l;toast('🏴‍☠️ ¡Los piratas te robaron '+Math.round(l)+' de combustible!')}v*=.3;ev.pir=null;pir.visible=false}}}}
+function evHud(){let s='';if(ev.storm>0)s+='<br>🌩️ Tormenta '+Math.ceil(ev.storm)+'s';if(ev.boost>0)s+='<br>🌊 Corriente favorable '+Math.ceil(ev.boost)+'s';if(ev.fog>0)s+='<br>🌫️ Niebla '+Math.ceil(ev.fog)+'s';if(ev.fail>0)s+='<br>🔧 Motor averiado '+Math.ceil(ev.fail)+'s';if(ev.vx)s+='<br>🌀 Remolino a '+Math.round(Math.hypot(X-ev.vx.x,Z-ev.vx.z))+' m';if(ev.pir)s+='<br><b style="color:#f66">🏴‍☠️ Piratas a '+Math.round(Math.hypot(X-ev.pir.x,Z-ev.pir.z))+' m</b>';if(ev.crates.length)s+='<br>📦 Cajas: '+ev.crates.length;if(ev.reefs.length)s+='<br>🪨 Arrecifes '+Math.ceil(ev.reefs[0].t)+'s';return s}
+let last=performance.now();
+function tick(now){requestAnimationFrame(tick);const dt=Math.min((now-last)/1000,.05);last=now;const t=now/1000;
+const fw=keys.KeyW||keys.ArrowUp,bk=keys.KeyS||keys.ArrowDown,l=keys.KeyA||keys.ArrowLeft,r=keys.KeyD||keys.ArrowRight;
+const mv=maxV()*(st.fuel>0?1:.2)*(ev.storm>0?.7:1)*(ev.boost>0?1.4:1)*(ev.fail>0?.5:1);const tg=fw?mv:bk?-mv*.3:0;v+=(tg-v)*Math.min(1,dt*(fw||bk?.6:.25));
+h+=((l?1:0)-(r?1:0))*turn()*dt*Math.min(1,Math.abs(v)/5)*(v<0?-1:1);
+X+=Math.sin(h)*v*dt;Z+=Math.cos(h)*v*dt;st.fuel=Math.max(0,st.fuel-Math.abs(v)*dt*.05*(ev.storm>0?1.5:1));
+if(Math.abs(X)>2200){X=Math.sign(X)*2200;v*=.9}if(Math.abs(Z)>2200){Z=Math.sign(Z)*2200;v*=.9}
+obs.forEach(o=>{const d=Math.hypot(X-o.x,Z-o.z);if(d<o.r+6){const k=(o.r+6)/d;X=o.x+(X-o.x)*k;Z=o.z+(Z-o.z)*k;v*=.6}});
+// puertos
+let np=-1;P.forEach((p,i)=>{if(Math.hypot(X-p.x,Z-p.z)<110)np=i});
+if(np!=inPort){inPort=np;if(np>=0){if(st.dest==np&&st.cargo>0){const g=Math.round(st.cargo*st.price);st.money+=g;toast('¡Entrega en '+P[np].n+'! +$'+g);st.cargo=0;st.dest=-1;for(const k in st.block)if(st.block[k]>0)st.block[k]--;st.block[np]=2}
+}panel()}
+let ns=-1;F.forEach((f,i)=>{if(Math.hypot(X-f.x,Z-f.z)<60)ns=i});if(ns!=inSt){inSt=ns;panel()}
+// visual
+events(dt,t);
+ship.position.set(X,Math.sin(t*1.6)*.25,Z);ship.rotation.set(Math.sin(t*1.2)*.02+v*.002,h,Math.sin(t*1.5)*.04+(ev.storm>0?Math.sin(t*4)*.07:0)-((l?1:0)-(r?1:0))*.05*Math.min(1,v/8));
+const n=Math.ceil(st.cargo/cap()*12);cont.forEach((c,i)=>{c.visible=i<n;if(st.dest>=0)c.material.color.setHex(P[st.dest].c)});
+const fx=Math.sin(h),fz=Math.cos(h);const tp=new THREE.Vector3(X-fx*32,15,Z-fz*32);cam.position.lerp(tp,1-Math.exp(-dt*3));cam.lookAt(X+fx*12,3,Z+fz*12);
+water.position.set(Math.round(X/31.25)*31.25,0,Math.round(Z/31.25)*31.25);wt.offset.y+=dt*.004;
+P.forEach((p,i)=>{p.beam.material.opacity=(i==st.dest?.85:.35)+Math.sin(t*2+i)*.1;p.beam.scale.x=p.beam.scale.z=i==st.dest?3:1});
+$('hud').innerHTML='💰 <b>$'+Math.floor(st.money)+'</b><br>⛽ '+Math.round(st.fuel)+'/'+tank()+(st.fuel<=0?' <b style="color:#f66">¡SIN COMBUSTIBLE!</b>':'')+'<br>📦 '+st.cargo+'/'+cap()+(st.dest>=0?' → '+P[st.dest].n+' ('+Math.round(Math.hypot(X-P[st.dest].x,Z-P[st.dest].z))+' m)':'')+'<br>🚢 '+Math.round(Math.abs(v)*1.9)+' nudos'+evHud();
+drawMap();R.render(S,cam)}
+requestAnimationFrame(tick);panel();toast('Estás en '+P[0].n+'. Elige un contrato y sigue el haz del destino y usa las gasolineras verdes para repostar');
+</script></body></html>
